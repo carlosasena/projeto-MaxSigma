@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  database:
+    image: postgres:16
+    container_name: maxsigma-db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: senha_segura_123
+      POSTGRES_DB: maxsigma_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infra/db_data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: maxsigma-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: carlossenatech@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - database
