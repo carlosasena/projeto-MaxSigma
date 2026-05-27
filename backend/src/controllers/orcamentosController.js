@@ -1,6 +1,6 @@
 import pool from '../config/db.js';
 
-// 1. MOTOR DE CÁLCULO: Cria o orçamento e explode os insumos com base nas fórmulas
+// 1. MOTOR DE CÁLCULO: Cria o orçamento e explode os insumos arredondando as barras para cima
 export const criarOrcamento = async (req, res) => {
   const { projeto_id, largura_mm, altura_mm, mao_de_obra, empresa_id, status } = req.body;
 
@@ -35,39 +35,52 @@ export const criarOrcamento = async (req, res) => {
 
     let totalMateriais = 0;
 
-    // Loop do Algoritmo: Processa cada fórmula cadastrada para esta janela
+    // Loop do Algoritmo: Processa cada fórmula cadastrada para esta esquadria
     for (const comp of componentes) {
       let larguraCorte = null;
       let alturaCorte = null;
 
-      // Se houver fórmula de Largura, calcula. Alumínio vertical fica null para não inflar a produção
+      // Se houver fórmula de Largura, calcula.
       if (comp.formula_largura && typeof comp.formula_largura === 'string') {
         larguraCorte = eval(comp.formula_largura.replace(/L/g, largura_mm).replace(/H/g, altura_mm));
       } else if (comp.tipo === 'vidro') {
-        larguraCorte = largura_mm; // Vidro sempre precisa de Largura para cálculo de m²
+        larguraCorte = largura_mm;
       }
 
-      // Se houver fórmula de Altura, calcula. Alumínio horizontal fica null para não inflar a produção
+      // Se houver fórmula de Altura, calcula.
       if (comp.formula_altura && typeof comp.formula_altura === 'string') {
         alturaCorte = eval(comp.formula_altura.replace(/H/g, altura_mm).replace(/L/g, largura_mm));
       } else if (comp.tipo === 'vidro') {
-        alturaCorte = altura_mm; // Vidro sempre precisa de Altura para cálculo de m²
+        alturaCorte = altura_mm;
       }
 
-      // Calcula o preço gravado para este item do orçamento baseado na categoria do insumo
+      // Calcula o preço baseado na nossa regra estrita
       let precoItem = 0;
+      let quantidadeCalculada = comp.quantidade_base; // Padrão para acessórios/estoque
+
       if (comp.tipo === 'aluminio') {
-        // Pega a dimensão real calculada (largura ou altura)
+        // Pega a dimensão real de corte gerada pela fórmula
         const medidaUsada = larguraCorte || alturaCorte || 0;
-        const metros = medidaUsada / 1000;
-        // Fração proporcional do preço da barra de 6 metros
-        precoItem = (metros / 6) * comp.preco_unitario * comp.quantidade_base;
-      } else if (comp.tipo === 'vidro') {
-        // Área em m² (Largura x Altura em metros)
+        
+        // Total de metros necessários para a quantidade deste perfil na peça
+        const totalMetrosItem = (medidaUsada * comp.quantidade_base) / 1000;
+        
+        // REGRA DO CARLOS: Calcula quantas BARRAS de 6 metros serão gastas, arredondando para cima
+        const barrasNecessarias = Math.ceil(totalMetrosItem / 6);
+        
+        // Guarda a quantidade de barras para salvar no banco
+        quantidadeCalculada = barrasNecessarias;
+        
+        // O preço cobrado será baseado na quantidade de barras inteiras compradas
+        precoItem = barrasNecessarias * comp.preco_unitario;
+      } 
+      else if (comp.tipo === 'vidro') {
+        // Área em m² (Largura x Altura em metros) multiplicada pela quantidade de folhas
         const m2 = ((larguraCorte * alturaCorte) / 1000000) * comp.quantidade_base;
         precoItem = m2 * comp.preco_unitario;
-      } else {
-        // Componentes de estoque e acessórios multiplicam direto pela quantidade fixa
+      } 
+      else {
+        // Componentes de estoque, borrachas e acessórios fixos
         precoItem = comp.preco_unitario * comp.quantidade_base;
       }
 
@@ -77,7 +90,7 @@ export const criarOrcamento = async (req, res) => {
       await client.query(
         `INSERT INTO itens_orcamento (orcamento_id, insumo_id, quantidade, largura_mm, altura_mm, preco_gravado)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [orcamentoId, comp.insumo_id, comp.quantidade_base, larguraCorte, alturaCorte, precoItem.toFixed(2)]
+        [orcamentoId, comp.insumo_id, quantidadeCalculada, larguraCorte, alturaCorte, precoItem.toFixed(2)]
       );
     }
 
@@ -98,12 +111,11 @@ export const criarOrcamento = async (req, res) => {
     console.error('Erro no motor de cálculo do orçamento:', error.message);
     return res.status(500).json({ error: 'Erro interno ao processar e calcular orçamento.' });
   } finally {
-    client.release(); // Libera a conexão com a pool
+    client.release();
   }
 };
 
-// 2. LISTA DE PRODUÇÃO: Busca os itens gerados e separa em listas organizadas para a fábrica
-// 2. LISTA DE PRODUCTION: Busca os itens gerados e separa em listas organizadas e agrupadas
+// 2. LISTA DE PRODUÇÃO: Busca os itens gerados e separa em listas organizadas e agrupadas
 export const obterListasProducao = async (req, res) => {
   const { id } = req.params;
 
@@ -118,25 +130,20 @@ export const obterListasProducao = async (req, res) => {
     const result = await pool.query(query, [id]);
     const itens = result.rows;
 
-    // Objetos temporários para acumular/agrupar os valores por código de insumo
     const acumulaAluminio = {};
     const acumulaEstoque = {};
     const acumulaVidro = {};
 
     itens.forEach(item => {
       if (item.tipo === 'aluminio') {
-        const medidaComponente = item.largura_mm || item.altura_mm || 0;
-        const metrosNecessarios = (medidaComponente * item.quantidade) / 1000;
-
+        // Como agora salvamos a quantidade de barras calculadas direto no item_orcamento:
         if (acumulaAluminio[item.codigo_insumo]) {
-          // Se o perfil já existe no grupo, soma a metragem necessária
-          acumulaAluminio[item.codigo_insumo].total_metros += metrosNecessarios;
+          acumulaAluminio[item.codigo_insumo].barras_para_comprar += Number(item.quantidade);
         } else {
-          // Se é a primeira vez que o perfil aparece, cria o registro técnico
           acumulaAluminio[item.codigo_insumo] = {
             codigo: item.codigo_insumo,
             descricao: item.descricao,
-            total_metros: metrosNecessarios
+            barras_para_comprar: Number(item.quantidade)
           };
         }
       } 
@@ -169,14 +176,8 @@ export const obterListasProducao = async (req, res) => {
       }
     });
 
-    // Pós-processamento: Transforma os objetos agrupados de volta em Arrays e aplica a regra de arredondamento de barras
-    const listaAluminio = Object.values(acumulaAluminio).map(perfil => {
-      return {
-        ...perfil,
-        barras_para_comprar: Math.ceil(perfil.total_metros / 6) // Aplica o teto de barras de 6m na soma total
-      };
-    });
-
+    // Transforma os objetos agrupados de volta em Arrays limpos para a resposta
+    const listaAluminio = Object.values(acumulaAluminio);
     const listaEstoque = Object.values(acumulaEstoque);
     const listaVidro = Object.values(acumulaVidro);
 
