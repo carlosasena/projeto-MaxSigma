@@ -3,10 +3,12 @@ import { criarOrcamento, obterListasProducao } from '../controllers/orcamentosCo
 
 const router = Router();
 
-// Rota 1: Dispara o Motor de Cálculo, gera o orçamento pai e explode os itens em barras arredondadas para cima
-router.post('/criar', criarOrcamento);
+// Rota 1: Cria o orçamento pai e dispara o motor de cálculo (Explosão de materiais)
+// Acessível via: POST /orcamentos
+router.post('/', criarOrcamento);
 
-// Rota 2: Busca o orçamento gerado e agrupa os materiais em listas limpas para a fábrica
-router.get('/producao/:id', obterListasProducao);
+// Rota 2: Busca a lista de produção/materiais vinculada a um orçamento específico
+// Acessível via: GET /orcamentos/:id/producao
+router.get('/:id/producao', obterListasProducao);
 
 export default router;

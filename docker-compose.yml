@@ -1,25 +1,43 @@
 version: '3.8'
+
 services:
   database:
-    image: postgres:16
+    image: postgres:16-alpine # Versão Alpine: mais leve, rápida e segura
     container_name: maxsigma-db
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: senha_segura_123
-      POSTGRES_DB: maxsigma_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     volumes:
-      - ./infra/db_data:/var/lib/postgresql/data
+      - maxsigma_postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c max_connections=100
+      -c shared_buffers=512MB
+      -c work_mem=16MB
+    networks:
+      - maxsigma-network
 
   pgadmin:
-    image: dpage/pgadmin4
+    image: dpage/pgadmin4:8.7 # Versão fixada para evitar quebras
     container_name: maxsigma-pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: carlossenatech@gmail.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'True'
     ports:
       - "8080:80"
     depends_on:
       - database
+    networks:
+      - maxsigma-network
+
+volumes:
+  maxsigma_postgres_data: # Volume nomeado: Performance máxima e segurança no Linux
+
+networks:
+  maxsigma-network:
+    driver: bridge
