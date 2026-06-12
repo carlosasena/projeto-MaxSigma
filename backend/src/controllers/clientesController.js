@@ -1,9 +1,8 @@
 import pool from '../config/db.js';
 import { z } from 'zod';
 
-// Schema de validação
+// Schema de validação (Não precisamos mais obrigar o front-end a enviar o empresa_id aqui)
 const clienteSchema = z.object({
-    empresa_id: z.number().int().positive(),
     nome: z.string().min(3).max(100),
     email: z.string().email().optional().nullable(),
     telefone: z.string().max(20).optional().nullable()
@@ -12,14 +11,20 @@ const clienteSchema = z.object({
 // 1. CRIAR CLIENTE
 export const criarCliente = async (req, res) => {
     try {
-        // Validação dos dados
+        const empresa_id = req.empresa_id; // ✅ Injetado via middleware de segurança
+        
+        if (!empresa_id) {
+            return res.status(400).json({ error: 'Identificação da empresa (Tenant) ausente.' });
+        }
+
+        // Validação dos dados (Nome, Email, Telefone)
         const dados = clienteSchema.parse(req.body);
         
-        // Verifica email duplicado no mesmo tenant
+        // Verifica email duplicado estritamente dentro do mesmo tenant (empresa)
         if (dados.email) {
             const emailExistente = await pool.query(
                 'SELECT id FROM clientes WHERE email = $1 AND empresa_id = $2',
-                [dados.email, dados.empresa_id]
+                [dados.email, empresa_id]
             );
             
             if (emailExistente.rows.length > 0) {
@@ -33,7 +38,7 @@ export const criarCliente = async (req, res) => {
             `INSERT INTO clientes (empresa_id, nome, email, telefone) 
              VALUES ($1, $2, $3, $4) 
              RETURNING id, nome, email, telefone, criado_em`,
-            [dados.empresa_id, dados.nome, dados.email, dados.telefone]
+            [empresa_id, dados.nome, dados.email, dados.telefone]
         );
         
         return res.status(201).json(novoCliente.rows[0]);
@@ -54,11 +59,13 @@ export const criarCliente = async (req, res) => {
 // 2. LISTAR CLIENTES (COM PAGINAÇÃO)
 export const listarClientes = async (req, res) => {
     try {
-        const { empresa_id, pagina = 1, limite = 20, busca = '' } = req.query;
+        const empresa_id = req.empresa_id; // ✅ Injetado via middleware de segurança
+        // CORREÇÃO: Extraindo explicitamente a variável "busca" enviada via query param
+        const { pagina = 1, limite = 10, busca } = req.query; 
         
         if (!empresa_id) {
             return res.status(400).json({ 
-                error: 'empresa_id é obrigatório' 
+                error: 'Identificação da empresa (Tenant) ausente.' 
             });
         }
         
@@ -68,16 +75,21 @@ export const listarClientes = async (req, res) => {
         let query = 'SELECT id, nome, email, telefone, criado_em FROM clientes WHERE empresa_id = $1';
         const params = [empresa_id];
         
+        // CORREÇÃO: Agora "busca" existe no escopo e funciona sem quebrar!
         if (busca) {
             query += ' AND (nome ILIKE $2 OR email ILIKE $2)';
             params.push(`%${busca}%`);
         }
         
-        // Contagem total
-        const countResult = await pool.query(
-            'SELECT COUNT(*) as total FROM clientes WHERE empresa_id = $1',
-            [empresa_id]
-        );
+        // Contagem total para a paginação correta no front-end
+        let countQuery = 'SELECT COUNT(*) as total FROM clientes WHERE empresa_id = $1';
+        const countParams = [empresa_id];
+        if (busca) {
+            countQuery += ' AND (nome ILIKE $2 OR email ILIKE $2)';
+            countParams.push(`%${busca}%`);
+        }
+        
+        const countResult = await pool.query(countQuery, countParams);
         const total = parseInt(countResult.rows[0].total);
         
         // Dados paginados
@@ -106,10 +118,10 @@ export const listarClientes = async (req, res) => {
 export const buscarClientePorId = async (req, res) => {
     try {
         const { id } = req.params;
-        const { empresa_id } = req.query;
+        const empresa_id = req.empresa_id; // ✅ CORREÇÃO: Captura segura do middleware de segurança, ignorando fraudes no query param
         
         if (!empresa_id) {
-            return res.status(400).json({ error: 'empresa_id é obrigatório' });
+            return res.status(400).json({ error: 'Identificação da empresa (Tenant) ausente.' });
         }
         
         const cliente = await pool.query(

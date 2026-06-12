@@ -1,9 +1,21 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import pool from './src/config/db.js'; // Importa a versão ESM real do seu db.js
 
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-const pool = require('./src/config/db.cjs'); // Versão CJS do db.js
-const INSUMOS_EXEMPLO = require('./src/seeds/insumos_base.json');
+// Recria o __dirname que não existe nativamente no modo ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Carrega o .env subindo um nível se ele estiver na raiz do projeto, ou na mesma pasta
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+// Lê a semente JSON usando o fs
+const INSUMOS_EXEMPLO = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'src', 'seeds', 'insumos_base.json'), 'utf-8')
+);
+
 const EMPRESA_ID = parseInt(process.argv[2]) || null;
 const PRECO_PADRAO_POR_KG = parseFloat(process.env.PRECO_PADRAO_KG || '35.00');
 
@@ -15,8 +27,8 @@ async function executarCarga() {
     }
 
     if (!EMPRESA_ID) {
-        console.error('[CARGA] Uso: node carga_insumos.cjs <EMPRESA_ID>');
-        console.error('[CARGA] Exemplo: node carga_insumos.cjs 1');
+        console.error('[CARGA] Uso: node carga_insumos.js <EMPRESA_ID>');
+        console.error('[CARGA] Exemplo: node carga_insumos.js 1');
         process.exit(1);
     }
 
@@ -62,6 +74,7 @@ async function executarCarga() {
             for (const item of batch) {
                 const precoUnitario = (item.peso_metro * PRECO_PADRAO_POR_KG).toFixed(2);
                 
+                // CORREÇÃO: Parêntese fechando a query corretamente antes do array de parâmetros
                 const result = await client.query(`
                     INSERT INTO insumos (empresa_id, codigo, descricao, tipo, peso_metro, preco_unitario, unidade_medida)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -72,7 +85,7 @@ async function executarCarga() {
                         preco_unitario = EXCLUDED.preco_unitario,
                         updated_at = NOW()
                     RETURNING (xmax = 0) AS inserido
-                }, [
+                `, [
                     EMPRESA_ID,
                     item.codigo,
                     item.descricao,
@@ -99,7 +112,7 @@ async function executarCarga() {
         console.log('========================================');
         console.log(`  Inseridos:   ${inseridos}`);
         console.log(`  Atualizados: ${atualizados}`);
-        console.log(`  Total:       ${inseridos + atualizados}`);
+        console.log(`  Total:       ${inseridos + updated_at ? inseridos + atualizados : inseridos}`);
         console.log(`  Empresa ID:  ${EMPRESA_ID}`);
         console.log(`  Preço base:  R$ ${PRECO_PADRAO_POR_KG}/kg`);
         console.log('========================================\n');
