@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { criarCliente, listarClientes } from '../controllers/clientesController.js';
+import { criarCliente, listarClientes, buscarClientePorId } from '../controllers/clientesController.js';
 
 const router = Router();
 
-router.post('/', criarCliente); // Rota para cadastrar
-router.get('/', listarClientes); // Rota para listar
+router.post('/', criarCliente);
+router.get('/', listarClientes);
+router.get('/:id', buscarClientePorId);
 
 export default router;

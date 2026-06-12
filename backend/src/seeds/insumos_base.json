@@ -1,0 +1,18 @@
+[
+    {
+        "codigo": "EF-001",
+        "descricao": "Perfil Estrutural EF-001 - ASA Alumínio (Série Estrutural ASA)",
+        "peso_metro": 1.25,
+        "tipo": "aluminio",
+        "unidade_medida": "KG",
+        "linha": "Série Estrutural ASA"
+    },
+    {
+        "codigo": "EF-002",
+        "descricao": "Perfil Estrutural EF-002 - ASA Alumínio (Série Estrutural ASA)",
+        "peso_metro": 1.45,
+        "tipo": "aluminio",
+        "unidade_medida": "KG",
+        "linha": "Série Estrutural ASA"
+    }
+]

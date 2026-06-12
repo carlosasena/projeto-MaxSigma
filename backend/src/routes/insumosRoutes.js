@@ -3,10 +3,8 @@ import { criarInsumo, listarInsumos, importarCatalogoLote } from '../controllers
 
 const router = Router();
 
-router.post('/', criarInsumo); 
-router.get('/', listarInsumos); 
-
-// Nova rota para testes futuros e cargas massivas de catálogos
-router.post('/importar-catalogo', importarCatalogoLote);
+router.post('/', criarInsumo);
+router.get('/', listarInsumos);
+router.post('/importar', importarCatalogoLote);
 
 export default router;
