@@ -112,7 +112,7 @@ async function executarCarga() {
         console.log('========================================');
         console.log(`  Inseridos:   ${inseridos}`);
         console.log(`  Atualizados: ${atualizados}`);
-        console.log(`  Total:       ${inseridos + updated_at ? inseridos + atualizados : inseridos}`);
+        console.log(`  Total:       ${inseridos + atualizados}`); 
         console.log(`  Empresa ID:  ${EMPRESA_ID}`);
         console.log(`  Preço base:  R$ ${PRECO_PADRAO_POR_KG}/kg`);
         console.log('========================================\n');
