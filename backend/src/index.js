@@ -39,8 +39,67 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID']
 }));
 
-// Rate Limiting: Proteção contra abusos
+// Rate Limiting: Proteção contra abusos de requisições repetitivas
 const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // Janela de 15 minutos
+    max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Limite estrito por IP em prod
+    message: { 
+        error: 'Muitas requisições vindas deste IP. Por favor, tente novamente após 15 minutos.' 
+    },
+    standardHeaders: true, // Retorna info de limite nos headers RateLimit-*
+    legacyHeaders: false, // Desabilita os headers X-RateLimit-* antigos
+});
+app.use(limiter);
+
+// ============================================
+// PARSERS DE REQUISIÇÃO (ESSENCIAL PARA RECEBER JSON)
+// ============================================
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Rota de diagnóstico rápido (Health Check) da API sem bloqueio de Tenant
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'online', 
+        ambiente: process.env.NODE_ENV,
+        timestamp: new Date() 
+    });
+});
+
+// ============================================
+// VINCULAÇÃO DAS ROTAS DO ECOSSISTEMA
+// ============================================
+app.use('/api/clientes', clientesRoutes);
+app.use('/api/insumos', insumosRoutes);
+app.use('/api/orcamentos', orcamentosRoutes);
+app.use('/api/tipologias', tipologiasRoutes);
+
+// ============================================
+// TRATAMENTO DE ERROS E ROTAS INEXISTENTES
+// ============================================
+
+// Captura de Rotas 404
+app.use((req, res) => {
+    res.status(404).json({ error: 'A rota solicitada não existe no servidor MaxSigma.' });
+});
+
+// Middleware Global de Tratamento de Erros (Previne que a API caia por exceções não tratadas)
+app.use((err, req, res, next) => {
+    logger.error(`❌ [Erro Global] Mensagem: ${err.message} | Stack: ${err.stack}`);
+    
+    res.status(err.status || 500).json({
+        error: process.env.NODE_ENV === 'production' 
+            ? 'Ocorreu um erro interno no servidor.' 
+            : err.message
+    });
+});
+
+// ============================================
+// INICIALIZAÇÃO DO SERVIDOR
+// ============================================
+app.listen(PORT, () => {
+    logger.info(`🚀 [Servidor] MaxSigma API rodando com sucesso na porta: ${PORT}`);
+});st limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: process.env.NODE_ENV === 'production' ? 100 : 1000,
     message: { error: 'Muitas requisições. Tente novamente mais tarde.' }
