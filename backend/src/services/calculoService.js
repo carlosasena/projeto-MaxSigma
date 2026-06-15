@@ -13,7 +13,10 @@ export function calcularItemPerfil({ pesoMetro, precoKg, metroLinearNecessario }
 // Mapeado exatamente para a assinatura esperada pelo orcamentosController
 export function calcularLotePerfis(itens) {
     if (!Array.isArray(itens) || itens.length === 0) {
-        return { resultadosIndividuais: [], totais: { totalBarras: 0, totalMetros: 0, totalPesoKg: 0, totalPreco: 0, totalDesperdicioMetros: 0 } };
+        return { 
+            resultadosIndividuais: [], 
+            totais: { totalBarras: 0, totalMetros: 0, totalPesoKg: 0, totalPreco: 0, totalDesperdicioMetros: 0 } 
+        };
     }
 
     const resultadosIndividuais = itens.map(item => {
@@ -39,15 +42,23 @@ export function calcularLotePerfis(itens) {
 
 // Interpretador matemático seguro de fórmulas estruturais (Ex: "L - 0.04")
 export function calcularMetragemPorFormula(formula, larguraMM, alturaMM) {
-    if (!formula) return 0;
+    const formulaStr = (typeof formula === 'string') ? formula : String(formula || '');
+    if (!formulaStr.trim()) return 0;
+
+    // Use a lógica de converter mm para metros aqui dentro
     const L = larguraMM / 1000;
     const H = alturaMM / 1000;
-    const expressaoLimpa = formula.toUpperCase().replace(/[^0-9+\-*/().LH]/g, '');
+    
+    const expressaoLimpa = formulaStr.toUpperCase().replace(/[^0-9+\-*/().LH]/g, '');
+    
     try {
-        const expressaoResolvida = expressaoLimpa.replace(/L/g, L.toString()).replace(/H/g, H.toString());
+        const expressaoResolvida = expressaoLimpa
+            .replace(/L/g, L.toString())
+            .replace(/H/g, H.toString());
+            
         const resultado = Function(`"use strict"; return (${expressaoResolvida})`)();
         return Number(resultado) > 0 ? Number(resultado) : 0;
-    } catch {
+    } catch (e) {
         return 0; 
     }
 }
