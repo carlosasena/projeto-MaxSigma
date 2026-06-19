@@ -40,75 +40,106 @@ export const criarOrcamento = async (req, res) => {
 
             await client.query('BEGIN');
 
-            // 1. Busca componentes com JOIN seguro (Multi-Tenant)
+           // 1. Busca componentes com JOIN seguro (Multi-Tenant)
             const componentes = await client.query(`
-                SELECT ct.*, i.id as insumo_id, i.preco_unitario, 
-                       i.peso_metro, i.tipo, i.codigo as insumo_codigo, i.descricao as insumo_descricao
-                FROM componentes_tipologia ct
-                JOIN insumos i ON ct.insumo_id = i.id
-                WHERE ct.tipologia_id = $1 AND i.empresa_id = $2
-            `, [dados.projeto_id, empresa_id]);
+            SELECT 
+                c.insumo_id, 
+                i.codigo as insumo_codigo, 
+                i.descricao as insumo_descricao, 
+                i.peso_metro, 
+                i.preco_unitario, 
+                i.tipo,
+                c.quantidade_base, 
+                c.formula_largura, 
+                c.formula_altura
+            FROM componentes_tipologia c
+            JOIN insumos i ON c.insumo_id = i.id
+            WHERE c.tipologia_id = $1
+        `, [dados.projeto_id]); // Use o ID da tipologia/projeto correto aqui
+            console.log('Componentes encontrados:', JSON.stringify(componentes.rows, null, 2));
 
             if (componentes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(400).json({ 
-                    error: 'Esta tipologia não possui componentes cadastrados ou não pertence à sua empresa.' 
-                });
+                return res.status(404).json({ error: 'Nenhum componente encontrado para esta tipologia.' });
             }
 
-            const larguraMetros = dados.largura_mm / 1000;
-            const alturaMetros = dados.altura_mm / 1000;
-            const itensParaCalcular = [];
+            // REMOVA A LINHA: const itensParaCalcular = []; 
 
-            // 2. Resolve fórmulas dinâmicas
-            for (const comp of componentes.rows) {
-                let metragemLinearNecessaria = 0;
+            // 2. Resolve fórmulas dinâmicas - VERSÃO CORRIGIDA
+const itensParaCalcular = componentes.rows.map(comp => {
+    // Garante que os valores sejam números
+    const tipo = Number(comp.tipo);
+    const quantidadeBase = parseFloat(comp.quantidade_base) || 1;
+    const pesoMetro = parseFloat(comp.peso_metro) || 0;
+    const precoKg = parseFloat(comp.preco_unitario) || 0;
+    
+    let metroLinearNecessario = 0;
 
-                if (comp.tipo === 'aluminio') {
-                    if (comp.formula_largura) {
-                        metragemLinearNecessaria += calcularMetragemPorFormula(
-                            comp.formula_largura,
-                            dados.largura_mm,
-                            dados.altura_mm
-                        ) * comp.quantidade_base;
-                    }
-                    if (comp.formula_altura) {
-                        metragemLinearNecessaria += calcularMetragemPorFormula(
-                            comp.formula_altura,
-                            dados.largura_mm,
-                            dados.altura_mm
-                        ) * comp.quantidade_base;
-                    }
-                } else {
-                    // Se não for alumínio, assume-se a quantidade base fixa
-                    metragemLinearNecessaria = comp.quantidade_base;
-                }
+    if (tipo === 3) {
+        // Alumínio - usa fórmulas estruturais
+        let metragemCalculada = 0;
+        
+        if (comp.formula_largura) {
+            metragemCalculada += calcularMetragemPorFormula(
+                comp.formula_largura, 
+                dados.largura_mm, 
+                dados.altura_mm
+            );
+        }
+        if (comp.formula_altura) {
+            metragemCalculada += calcularMetragemPorFormula(
+                comp.formula_altura, 
+                dados.largura_mm, 
+                dados.altura_mm
+            );
+        }
+        
+        // Aplica a quantidade base (pode ser 1 ou mais)
+        metroLinearNecessario = metragemCalculada * quantidadeBase;
+        
+    } 
+    else {
+        // Acessório (1) ou Vidro (2) - usa quantidade base diretamente
+        // Neste caso, a quantidade_base representa a metragem ou quantidade necessária
+        metroLinearNecessario = quantidadeBase;
+    }
 
-                // O PUSH DEVE ESTAR FORA DOS IFS, DENTRO DO FOR
-                itensParaCalcular.push({
-                    codigoPerfil: comp.insumo_codigo,
-                    descricao: comp.insumo_descricao,
-                    pesoMetro: Number(comp.peso_metro) || 0,
-                    precoKg: Number(comp.preco_unitario) || 0,
-                    metroLinearNecessaria: metragemLinearNecessaria || 0 
-                });
-            } // Fim do loop for (agora está correto)
+    // Retorna objeto com a nomenclatura CORRETA (metroLinearNecessario)
+    return {
+        codigo: comp.insumo_codigo || 'desconhecido',
+        pesoMetro: pesoMetro,
+        precoKg: precoKg,
+        metroLinearNecessario: metroLinearNecessario // <-- NOME CORRETO
+    };
+});
 
-            // 3. Processa motor de cálculo
-            const resultadoMecanico = calcularLotePerfis(itensParaCalcular);
+// LOG PARA DEBUG (opcional, remova em produção)
+console.log('Itens para calcular:', JSON.stringify(itensParaCalcular, null, 2));
+           // 3. Processa motor de cálculo
+const resultadoMecanico = calcularLotePerfis(itensParaCalcular);
 
-            // 4. Persiste no Banco de Dados
-            const novoOrcamento = await client.query(`
-                INSERT INTO orcamentos (
-                    empresa_id, projeto_id, cliente_id, endereco_obra_id, 
-                    largura_mm, altura_mm, custo_material, mao_de_obra, valor_total, status
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                RETURNING id
-            `, [
-                empresa_id, dados.projeto_id, dados.cliente_id, dados.endereco_obra_id,
-                dados.largura_mm, dados.altura_mm, resultadoMecanico.totais.totalPreco, 
-                dados.mao_de_obra, (resultadoMecanico.totais.totalPreco + dados.mao_de_obra), dados.status
-            ]);
+// LOG DE VERIFICAÇÃO
+console.log('RESULTADO MECANICO:', JSON.stringify(resultadoMecanico, null, 2));
+console.log('Total Preco:', resultadoMecanico.totais.totalPreco);
+
+// 4. Persiste no Banco de Dados
+const novoOrcamento = await client.query(`
+    INSERT INTO orcamentos (
+        empresa_id, projeto_id, cliente_id, endereco_obra_id, 
+        largura_mm, altura_mm, custo_material, mao_de_obra, valor_total, status
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING id
+`, [
+    empresa_id, 
+    dados.projeto_id, 
+    dados.cliente_id, 
+    dados.endereco_obra_id,
+    dados.largura_mm, 
+    dados.altura_mm, 
+    resultadoMecanico.totais.totalPreco || 0, // Garante que não seja null
+    dados.mao_de_obra || 0, 
+    (resultadoMecanico.totais.totalPreco || 0) + (dados.mao_de_obra || 0), 
+    dados.status || 'Em Orçamento'
+]);
 
             const orcamentoId = novoOrcamento.rows[0].id;
 
